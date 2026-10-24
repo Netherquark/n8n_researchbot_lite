@@ -1,0 +1,491 @@
+{
+  "name": "ResearchBot Lite - Executive Summary Generation",
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "ResearchBot Lite",
+        "formDescription": "Generate a concise research brief from up to five web search results. Use public, non-confidential topics only. Report usually takes a short time; provider rate limits can delay or prevent completion.",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Research topic or question",
+              "fieldType": "textarea",
+              "fieldName": "topic",
+              "placeholder": "Example: What practical methods reduce water use in data centres? Explain trade-offs and evidence.",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.5,
+      "position": [
+        -1520,
+        128
+      ],
+      "id": "e373104a-85ac-4dac-bd9d-aff65250f7ee",
+      "name": "Research Topic Form",
+      "notesInFlow": true,
+      "webhookId": "12bd4dc7-733b-4715-91d5-b14053ce7dc5",
+      "notes": "Input must be a public, non-confidential question. Code node enforces 20-300 characters after trimming."
+    },
+    {
+      "parameters": {
+        "jsCode": "const t0 = Date.now();\nconst incoming = $input.first()?.json ?? {};\nconst topic = String(incoming.topic ?? '').trim();\nconst valid = topic.length >= 20 && topic.length <= 300;\nlet validationReason = '';\nif (topic.length === 0) validationReason = 'Enter a research question.';\nelse if (topic.length < 20) validationReason = 'Question must be at least 20 characters so search intent is meaningful.';\nelse if (topic.length > 300) validationReason = 'Question must be 300 characters or fewer.';\nconst startedAt = new Date(t0).toISOString();\nconst runId = String($execution.id ?? 'execution-id-unavailable');\nconst now = Date.now();\nreturn [{ json: {\n  topic,\n  valid,\n  validationReason,\n  runId,\n  startedAt,\n  wallStartMs: t0,\n  activeWorkMs: now - t0,\n  activeWorkBudgetMs: 60000,\n  pipeline: 'ResearchBot Lite',\n  model: 'gemini-3.5-flash-lite'\n} }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -1280,
+        128
+      ],
+      "id": "a9a6936c-4dc6-47f3-bcb8-a694037696ef",
+      "name": "Validate Input + Start Clock",
+      "notesInFlow": true,
+      "notes": "Local input validation and start timestamps. No API calls here."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "0f33739d-d052-4372-a76c-122fea3ca3ec",
+              "leftValue": "={{ $json.valid }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1040,
+        128
+      ],
+      "id": "57130c95-2426-4c5e-9afa-e0a93897522a",
+      "name": "Valid Topic?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const t0 = Date.now();\nconst base = $('Validate Input + Start Clock').first().json;\nconst esc = (v) => String(v ?? '').replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\nconst activeWorkMs = (Number(base.activeWorkMs) || 0) + (Date.now() - t0);\nconst wallClockMs = Date.now() - Number(base.wallStartMs || t0);\nconst html = `<main style=\"font-family:system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:1rem;color:#222\"><h1>Research request rejected</h1><p>${esc(base.validationReason || 'Invalid research question.')}</p><p>Provide a clear public-topic question between 20 and 300 characters, then submit again.</p><hr><p><b>Status:</b> INPUT_INVALID</p><p><b>Run ID:</b> ${esc(base.runId)}</p><p><b>Instrumented Code-node work:</b> ${activeWorkMs} ms</p><p><b>Elapsed:</b> ${wallClockMs} ms</p></main>`;\nreturn [{json:{status:'INPUT_INVALID', html, runId:base.runId, activeWorkMs, wallClockMs}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -784,
+        352
+      ],
+      "id": "1f5baa8a-6cea-4dbd-9aa1-61e7d5b816e4",
+      "name": "Build Input Error Page",
+      "notesInFlow": true,
+      "notes": "Render escaped HTML; invalid requests do not consume API quota."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tavily.com/search",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { query: $json.topic, topic: 'general', search_depth: 'basic', chunks_per_source: 1, max_results: 5, include_published_date: true, include_answer: false, include_raw_content: false, include_images: false, include_usage: false, safe_search: false } }}",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "maxRedirects": 3
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 15000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -784,
+        -16
+      ],
+      "id": "9a7a03c6-ddfb-4205-827f-0a38ae7a154f",
+      "name": "Tavily Basic Search",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notesInFlow": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "7AivBs2CLq13aCNe",
+          "name": "Tavily API"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Select a Header Auth credential with Authorization: Bearer <Tavily token>. Max 5 basic results; request timeout 15s; 3 attempts total with 5s backoff. Error output routes to a truthful failure page."
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $input.first().json;\nconst original = $('Validate Input + Start Clock').first().json;\n\nconst results = Array.isArray(response.results)\n  ? response.results\n  : [];\n\nconst sources = results\n  .filter(r =>\n    r &&\n    typeof r.url === 'string' &&\n    r.url.startsWith('http') &&\n    typeof r.title === 'string' &&\n    r.title.trim() !== '' &&\n    typeof r.content === 'string' &&\n    r.content.trim() !== ''\n  )\n  .slice(0, 5)\n  .map((r, i) => ({\n    id: i + 1,\n    title: r.title.trim(),\n    url: r.url.trim(),\n    content: r.content.trim().slice(0, 6000),\n    score: typeof r.score === 'number' ? r.score : null,\n    publishedDate: r.published_date ?? null,\n  }));\n\nconst evidenceChars = sources.reduce(\n  (sum, source) => sum + source.content.length,\n  0\n);\n\nconst hasSources = sources.length > 0;\n\nreturn [{\n  json: {\n    topic: String(original.topic ?? response.query ?? '').trim(),\n    runId: original.runId ?? '',\n    sources,\n    sourceCount: sources.length,\n    evidenceChars,\n    hasSources,\n    searchRequestId: response.request_id ?? '',\n    retrievedAt: new Date().toISOString(),\n    startedAt: original.startedAt ?? '',\n    wallStartMs: original.wallStartMs ?? 0,\n    activeWorkMs: original.activeWorkMs ?? 0,\n    activeWorkBudgetMs: original.activeWorkBudgetMs ?? 60000,\n    model: original.model ?? 'gemini-3.5-flash-lite',\n    validationStatus: hasSources ? 'ok' : 'no_valid_sources',\n    validationError: hasSources\n      ? ''\n      : 'No results contain a URL, title, and content.',\n  },\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -528,
+        -16
+      ],
+      "id": "099a2964-63b7-429b-b196-e362d02c1a71",
+      "name": "Normalize & Deduplicate Sources",
+      "notesInFlow": true,
+      "notes": "Accept HTTP(S) URLs only; deduplicate URL; at most five sources; snippets and complete evidence JSON capped to 6,000 characters. No crawl or extra search."
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "53d8fdc3-d60a-45a2-943b-68e304c2da2e",
+              "leftValue": "={{ $json.hasSources }}",
+              "rightValue": true,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -272,
+        -16
+      ],
+      "id": "7bf77d60-2694-4ede-a118-99b8cc8bf2c6",
+      "name": "Usable Sources?"
+    },
+    {
+      "parameters": {
+        "jsCode": "const t0 = Date.now();\nconst d = $input.first().json;\nconst esc = (v) => String(v ?? '').replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\nconst activeWorkMs = (Number(d.activeWorkMs) || 0) + (Date.now() - t0);\nconst wallClockMs = Date.now() - Number(d.wallStartMs || t0);\nconst html = `<main style=\"font-family:system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:1rem;color:#222\"><h1>No usable search evidence</h1><p>Tavily returned no results with a usable title, HTTP(S) URL, and snippet after validation and deduplication. Gemini was not called, so no report was fabricated.</p><p><b>Try:</b> make the query more specific, use alternate terminology, or retry after checking Tavily service status and credits.</p><hr><p><b>Status:</b> NO_RESULTS</p><p><b>Topic:</b> ${esc(d.topic)}</p><p><b>Run ID:</b> ${esc(d.runId)}</p><p><b>Instrumented Code-node work:</b> ${activeWorkMs} ms</p><p><b>Elapsed:</b> ${wallClockMs} ms</p></main>`;\nreturn [{json:{status:'NO_RESULTS',html,runId:d.runId,activeWorkMs,wallClockMs,sourceCount:0}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -16,
+        208
+      ],
+      "id": "dd532896-8304-412e-8b45-da4d3d717062",
+      "name": "Build No-Results Page",
+      "notesInFlow": true,
+      "notes": "No Gemini call when no valid source is available."
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash-lite:generateContent",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "=\n{{ JSON.stringify({\n  systemInstruction: {\n    parts: [{\n      text: \"You are a rigorous research analyst. Use only the supplied source evidence. Never invent facts or citations. Every finding must cite one or more supplied source IDs. If evidence is insufficient, state that clearly. Do not claim EV drivetrain efficiency exceeds 95% unless the evidence directly supports that claim.\"\n    }]\n  },\n  contents: [{\n    role: \"user\",\n    parts: [{\n      text:\n        \"Research topic: \" + $json.topic +\n        \"\\n\\nSource evidence:\\n\" +\n        JSON.stringify($json.sources) +\n        \"\\n\\nProduce a research report as a JSON object with title, executive_summary, findings, caveats, and conclusion. \" +\n        \"Include 3 to 5 findings. Each finding must have claim (string), source_ids (array of source ID strings), and confidence (low, medium, or high). \" +\n        \"Use only IDs from the supplied sources. Include caveats about evidence quality and missing information. Return JSON only.\"\n    }]\n  }],\n  generationConfig: {\n    temperature: 0.2,\n    maxOutputTokens: 1600,\n    responseMimeType: \"application/json\",\n    responseSchema: {\n      type: \"OBJECT\",\n      properties: {\n        title: { type: \"STRING\" },\n        executive_summary: { type: \"STRING\" },\n        findings: {\n          type: \"ARRAY\",\n          items: {\n            type: \"OBJECT\",\n            properties: {\n              claim: { type: \"STRING\" },\n              source_ids: {\n                type: \"ARRAY\",\n                items: { type: \"STRING\" }\n              },\n              confidence: {\n                type: \"STRING\",\n                enum: [\"low\", \"medium\", \"high\"]\n              }\n            },\n            required: [\"claim\", \"source_ids\", \"confidence\"]\n          }\n        },\n        caveats: {\n          type: \"ARRAY\",\n          items: { type: \"STRING\" }\n        },\n        conclusion: { type: \"STRING\" }\n      },\n      required: [\n        \"title\",\n        \"executive_summary\",\n        \"findings\",\n        \"caveats\",\n        \"conclusion\"\n      ]\n    }\n  }\n}) }}\n",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "maxRedirects": 2
+            }
+          },
+          "response": {
+            "response": {
+              "responseFormat": "json"
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        -16,
+        -112
+      ],
+      "id": "6cb1a329-4c13-472a-9d67-1dcbb4ee24a2",
+      "name": "Gemini Flash-Lite Synthesis",
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 5000,
+      "notesInFlow": true,
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "WPibQkQ4LalEJqUc",
+          "name": "Gemini API"
+        }
+      },
+      "onError": "continueErrorOutput",
+      "notes": "Select Header Auth credential x-goog-api-key: <Google AI Studio key>. Uses stable model gemini-3.5-flash-lite, which defaults to minimal thinking for low latency. Uses structured JSON output; deprecated sampling parameters are intentionally omitted. Request timeout 30s; 3 attempts total, then explicit failure page."
+    },
+    {
+      "parameters": {
+        "jsCode": "const t0 = Date.now();\nconst base = $('Normalize & Deduplicate Sources').first().json;\nconst response = $input.first()?.json ?? {};\nconst esc = (v) => String(v ?? '').replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\nconst allowed = new Map((Array.isArray(base.sources) ? base.sources : []).map(s => [String(s.id), s]));\nconst parts = response?.candidates?.[0]?.content?.parts;\nconst rawText = Array.isArray(parts) ? parts.map(p => typeof p?.text === 'string' ? p.text : '').filter(Boolean).join('\\n').trim() : '';\nconst finishReason = String(response?.candidates?.[0]?.finishReason ?? '');\nfunction finishFailure(message) {\n  const end = Date.now();\n  const activeWorkMs = (Number(base.activeWorkMs) || 0) + (end - t0);\n  const wallClockMs = end - Number(base.wallStartMs || t0);\n  const html = `<main style=\"font-family:system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:1rem;color:#222\"><h1>Report validation failed</h1><p>${esc(message)}</p><p>No report is marked complete. Retry the topic, then inspect the Gemini output in n8n execution history if this persists.</p><hr><p><b>Status:</b> MODEL_OUTPUT_INVALID</p><p><b>Run ID:</b> ${esc(base.runId)}</p><p><b>Sources retrieved:</b> ${esc(base.sourceCount)}</p><p><b>Instrumented Code-node work:</b> ${activeWorkMs} ms</p><p><b>Elapsed:</b> ${wallClockMs} ms</p></main>`;\n  return [{json:{status:'MODEL_OUTPUT_INVALID',html,runId:base.runId,activeWorkMs,wallClockMs,sourceCount:base.sourceCount}}];\n}\nif (!rawText) return finishFailure('Gemini returned no usable text candidate (the output may have been blocked or unavailable).');\nif (finishReason === 'MAX_TOKENS') return finishFailure('Gemini output reached its token limit and may be truncated. The workflow will not repair it with a second model call in this PoC.');\nlet candidate;\ntry {\n  const cleaned = rawText.replace(/^```(?:json)?\\s*/i, '').replace(/\\s*```$/, '').trim();\n  candidate = JSON.parse(cleaned);\n} catch {\n  return finishFailure('Gemini output was not valid JSON, despite requesting structured output. No second synthesis call is made in this PoC.');\n}\nif (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return finishFailure('Gemini output is not a JSON object.');\nif (typeof candidate.title !== 'string' || !candidate.title.trim() || typeof candidate.executive_summary !== 'string' || !candidate.executive_summary.trim() || typeof candidate.conclusion !== 'string' || !candidate.conclusion.trim() || !Array.isArray(candidate.findings)) {\n  return finishFailure('Gemini JSON omitted one or more required fields (title, executive_summary, findings, conclusion).');\n}\n// let needsReview = candidate.findings.length < 3 || candidate.findings.length > 5;\nlet needsReview = true;\nconst renderedFindings = candidate.findings.slice(0, 5).map((f, i) => {\n  const claim = typeof f?.claim === 'string' ? f.claim.trim() : '';\n  const rawIds = Array.isArray(f?.source_ids) ? f.source_ids : [];\n  const knownIds = [];\n  for (const rawId of rawIds) {\n    const id = String(rawId ?? '').trim();\n    if (allowed.has(id)) { if (!knownIds.includes(id)) knownIds.push(id); }\n    else if (id) needsReview = true;\n  }\n  if (!claim || knownIds.length === 0) needsReview = true;\n  const confidence = ['low','medium','high'].includes(String(f?.confidence).toLowerCase()) ? String(f.confidence).toLowerCase() : 'low';\n  const links = knownIds.map(id => {\n    const s = allowed.get(id);\n    return `<a href=\"${esc(s.url)}\" target=\"_blank\" rel=\"noopener noreferrer\">${esc(id)}</a>`;\n  }).join(', ');\n  return `<li><p>${esc(claim || '(Finding text missing)')}</p><p><small><b>Confidence:</b> ${esc(confidence)}${links ? ` | <b>Sources:</b> ${links}` : ' | <b>Sources:</b> none validated'}</small></p></li>`;\n});\nconst caveats = Array.isArray(candidate.caveats) ? candidate.caveats.filter(v => typeof v === 'string' && v.trim()).slice(0, 8) : [];\nlet unknownIdFound = false;\nfor (const f of candidate.findings) {\n  const ids = Array.isArray(f?.source_ids) ? f.source_ids : [];\n  if (ids.some(id => !allowed.has(String(id ?? '').trim()))) unknownIdFound = true;\n}\nif (unknownIdFound) needsReview = true;\nconst status = needsReview ? 'NEEDS_REVIEW' : 'COMPLETE';\n// const sourceLinks = (base.sources || []).map(s => `<li id=\"${esc(s.id)}\"><b>${esc(s.id)}.</b> <a href=\"${esc(s.url)}\" target=\"_blank\" rel=\"noopener noreferrer\">${esc(s.title)}</a>${s.publishedDate ? ` <small>(${esc(s.publishedDate)})</small>` : ''}<p><small>${esc(s.snippet)}</small></p></li>`).join('');\nconst sourceLinks = (base.sources || []).map(s =>\n  `<li id=\"${esc(s.id)}\"><b>${esc(s.id)}.</b> ` +\n  `<a href=\"${esc(s.url)}\" target=\"_blank\" rel=\"noopener noreferrer\">${esc(s.title)}</a>` +\n  `${s.publishedDate ? ` <small>(${esc(s.publishedDate)})</small>` : ''}` +\n  `<p><small>${esc(String(s.content ?? '').slice(0, 500))}</small></p></li>`\n).join('');\nconst caveatBlock = caveats.length ? `<h2>Caveats</h2><ul>${caveats.map(c => `<li>${esc(c)}</li>`).join('')}</ul>` : '<h2>Caveats</h2><p>The model did not supply caveats. Source snippets may omit context; verify important claims at the original pages.</p>';\nconst reviewNotice = needsReview ? '<div style=\"border:1px solid #b45309;padding:.75rem;margin:1rem 0;background:#fffbeb\"><b>Review required.</b> Citation IDs or finding count failed structural checks. Read source pages before relying on any claim.</div>' : '';\nconst end = Date.now();\nconst activeWorkMs = (Number(base.activeWorkMs) || 0) + (end - t0);\nconst wallClockMs = end - Number(base.wallStartMs || t0);\nconst html = `<main style=\"font-family:system-ui,sans-serif;line-height:1.55;max-width:1000px;margin:1rem auto;padding:1rem;color:#222\"><header><p style=\"text-transform:uppercase;letter-spacing:.08em;font-size:.8rem;color:#555\">ResearchBot Lite · ${esc(status)}</p><h1>${esc(candidate.title)}</h1><p><b>Research question:</b> ${esc(base.topic)}</p><p><small>Run ID: ${esc(base.runId)} | Generated: ${esc(new Date(end).toISOString())} | Sources: ${esc(base.sourceCount)} | Model: ${esc(base.model)}</small></p></header>${reviewNotice}<h2>Executive summary</h2><p>${esc(candidate.executive_summary)}</p><h2>Key findings</h2><ol>${renderedFindings.join('')}</ol>${caveatBlock}<h2>Conclusion</h2><p>${esc(candidate.conclusion)}</p><h2>Retrieved sources</h2><ol>${sourceLinks}</ol><aside style=\"border-top:1px solid #ddd;margin-top:1.5rem;padding-top:.75rem;color:#555\"><p><b>Verification limit:</b> source IDs and links are checked against Tavily's returned results. This validates citation provenance structurally, not whether each page semantically proves its linked claim. Search snippets can omit context; inspect primary sources for consequential decisions.</p><p><b>Instrumented Code-node work:</b> ${activeWorkMs} ms. <b>Elapsed time:</b> ${wallClockMs} ms (includes external API latency and retries).</p><p>60-second active-work acceptance must be confirmed from n8n execution node timings; instrumented Code-node time is a subset of total successful non-HTTP node time.</p></aside></main>`;\nreturn [{json:{status,html,runId:base.runId,activeWorkMs,wallClockMs,sourceCount:base.sourceCount,knownSourceIds:[...allowed.keys()],needsReview}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        -112
+      ],
+      "id": "0b14c746-3dc6-4966-b844-586b961f0106",
+      "name": "Validate Citations + Render Report",
+      "notesInFlow": true,
+      "notes": "Reject malformed/truncated output. Validate IDs against retrieved sources; use API-returned URLs only. Unknown IDs or non-3-to-5 finding counts produce NEEDS_REVIEW. Escape all model/source text before HTML rendering."
+    },
+    {
+      "parameters": {
+        "jsCode": "const t0 = Date.now();\nconst failed = $input.first()?.json ?? {};\nconst base = $('Validate Input + Start Clock').first().json;\nconst err = failed.error ?? failed;\nconst msg = typeof err === 'string' ? err : [err?.message, err?.description, err?.name, err?.httpCode, err?.statusCode].filter(Boolean).join(' ');\nconst s = String(msg || '').toLowerCase();\nlet code = 'SEARCH_UPSTREAM_ERROR';\nlet explanation = 'Tavily Search failed after automatic retries. Review the failed HTTP node in n8n execution details.';\nlet remedy = 'Check Tavily API status, credential selection, request details, and network connectivity.';\nif (/401|unauthori[sz]|invalid.{0,12}(api )?key|credential/.test(s)) { code = 'TAVILY_AUTH_ERROR'; explanation = 'Tavily authentication failed.'; remedy = 'Edit the Tavily Header Auth credential: header name Authorization, value Bearer followed by your Tavily API token. Then run again.'; }\nelse if (/403|forbidden|permission/.test(s)) { code = 'TAVILY_FORBIDDEN'; explanation = 'Tavily rejected this request as forbidden.'; remedy = 'Check API account access and plan restrictions.'; }\nelse if (/429|quota|rate.?limit|too many requests|credits/.test(s)) { code = 'TAVILY_RATE_LIMIT'; explanation = 'Tavily rate/credit limit was reached. Short retries cannot reset an exhausted quota.'; remedy = 'Wait for the quota window to reset or inspect Tavily usage; then resubmit.'; }\nelse if (/timeout|timed out|etimedout|econnabort/.test(s)) { code = 'TAVILY_TIMEOUT'; explanation = 'Tavily did not respond before the request timeout.'; remedy = 'Check connectivity and provider status, then resubmit. Automatic transient retries have already been attempted.'; }\nconst esc = (v) => String(v ?? '').replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\nconst activeWorkMs = (Number(base.activeWorkMs) || 0) + (Date.now() - t0);\nconst wallClockMs = Date.now() - Number(base.wallStartMs || t0);\nconst html = `<main style=\"font-family:system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:1rem;color:#222\"><h1>Research could not start</h1><p>${esc(explanation)}</p><p>${esc(remedy)}</p><p>No report was generated; the workflow will not invent evidence.</p><hr><p><b>Status:</b> ${esc(code)}</p><p><b>Topic:</b> ${esc(base.topic)}</p><p><b>Run ID:</b> ${esc(base.runId)}</p><p><b>Instrumented Code-node work:</b> ${activeWorkMs} ms</p><p><b>Elapsed:</b> ${wallClockMs} ms</p></main>`;\nreturn [{json:{status:code,html,runId:base.runId,activeWorkMs,wallClockMs}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -512,
+        432
+      ],
+      "id": "e124d1a6-abe8-483e-a224-5bb1ac747a40",
+      "name": "Build Search Failure Page",
+      "notesInFlow": true,
+      "notes": "Maps auth, quota/rate-limit, timeout, and generic provider failure to actionable states. Does not expose raw provider error details."
+    },
+    {
+      "parameters": {
+        "jsCode": "const t0 = Date.now();\nconst failed = $input.first()?.json ?? {};\nconst base = $('Normalize & Deduplicate Sources').first().json;\nconst err = failed.error ?? failed;\nconst msg = typeof err === 'string' ? err : [err?.message, err?.description, err?.name, err?.httpCode, err?.statusCode].filter(Boolean).join(' ');\nconst s = String(msg || '').toLowerCase();\nlet code = 'GEMINI_UPSTREAM_ERROR';\nlet explanation = 'Gemini synthesis failed after automatic retries. No report was fabricated.';\nlet remedy = 'Open the failed Gemini HTTP node in n8n execution details; check the model endpoint, credential, and current API status.';\nif (/401|unauthori[sz]|invalid.{0,12}(api )?key|credential/.test(s)) { code = 'GEMINI_AUTH_ERROR'; explanation = 'Gemini API authentication failed.'; remedy = 'Edit the Gemini Header Auth credential: header name x-goog-api-key, value your Google AI Studio API key. Then run again.'; }\nelse if (/403|forbidden|permission|not allowed/.test(s)) { code = 'GEMINI_ACCESS_ERROR'; explanation = 'Gemini rejected this model/API access.'; remedy = 'Confirm model availability for your project and verify the API key has Gemini Developer API access.'; }\nelse if (/429|quota|rate.?limit|resource exhausted|too many requests/.test(s)) { code = 'GEMINI_RATE_LIMIT'; explanation = 'Gemini rate/quota limit was reached. Retrying cannot clear exhausted free-tier quota.'; remedy = 'Wait for the rate-limit window or daily quota to reset, inspect Google AI Studio usage, then resubmit.'; }\nelse if (/timeout|timed out|etimedout|econnabort/.test(s)) { code = 'GEMINI_TIMEOUT'; explanation = 'Gemini did not respond before the request timeout.'; remedy = 'Check connectivity and provider status, then resubmit. Automatic transient retries have already been attempted.'; }\nconst esc = (v) => String(v ?? '').replace(/[&<>\"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;'}[c]));\nconst activeWorkMs = (Number(base.activeWorkMs) || 0) + (Date.now() - t0);\nconst wallClockMs = Date.now() - Number(base.wallStartMs || t0);\nconst html = `<main style=\"font-family:system-ui,sans-serif;max-width:900px;margin:2rem auto;padding:1rem;color:#222\"><h1>Research synthesis failed</h1><p>${esc(explanation)}</p><p>${esc(remedy)}</p><p>Search evidence was retrieved, but the system will not present a report as complete without successful synthesis.</p><hr><p><b>Status:</b> ${esc(code)}</p><p><b>Topic:</b> ${esc(base.topic)}</p><p><b>Sources retrieved:</b> ${esc(base.sourceCount)}</p><p><b>Run ID:</b> ${esc(base.runId)}</p><p><b>Instrumented Code-node work:</b> ${activeWorkMs} ms</p><p><b>Elapsed:</b> ${wallClockMs} ms</p></main>`;\nreturn [{json:{status:code,html,runId:base.runId,activeWorkMs,wallClockMs,sourceCount:base.sourceCount}}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        272,
+        288
+      ],
+      "id": "ee92b673-13a4-40b3-b476-e8851788f4f5",
+      "name": "Build Gemini Failure Page",
+      "notesInFlow": true,
+      "notes": "Handles exhausted Gemini retries without reporting false success. Quota failures instruct the operator to wait/check usage rather than retry infinitely."
+    },
+    {
+      "parameters": {
+        "operation": "completion",
+        "respondWith": "showText",
+        "responseText": "={{ $json.html }}"
+      },
+      "type": "n8n-nodes-base.form",
+      "typeVersion": 2.5,
+      "position": [
+        544,
+        128
+      ],
+      "id": "18285c92-94b3-439e-b9d1-f93e1d023056",
+      "name": "Show Final Result",
+      "notesInFlow": true,
+      "webhookId": "646e63f0-1ad9-4099-a613-7423d427be76",
+      "notes": "All success and handled exception paths end here. HTML is generated with escaped text by local Code nodes."
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Research Topic Form": {
+      "main": [
+        [
+          {
+            "node": "Validate Input + Start Clock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input + Start Clock": {
+      "main": [
+        [
+          {
+            "node": "Valid Topic?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Valid Topic?": {
+      "main": [
+        [
+          {
+            "node": "Tavily Basic Search",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Input Error Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Input Error Page": {
+      "main": [
+        [
+          {
+            "node": "Show Final Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tavily Basic Search": {
+      "main": [
+        [
+          {
+            "node": "Normalize & Deduplicate Sources",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Search Failure Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize & Deduplicate Sources": {
+      "main": [
+        [
+          {
+            "node": "Usable Sources?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Usable Sources?": {
+      "main": [
+        [
+          {
+            "node": "Gemini Flash-Lite Synthesis",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build No-Results Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build No-Results Page": {
+      "main": [
+        [
+          {
+            "node": "Show Final Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Gemini Flash-Lite Synthesis": {
+      "main": [
+        [
+          {
+            "node": "Validate Citations + Render Report",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Build Gemini Failure Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Citations + Render Report": {
+      "main": [
+        [
+          {
+            "node": "Show Final Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Search Failure Page": {
+      "main": [
+        [
+          {
+            "node": "Show Final Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Gemini Failure Page": {
+      "main": [
+        [
+          {
+            "node": "Show Final Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "bd013460-1075-4d4a-8d6a-d4ab543319d4",
+  "meta": {
+    "instanceId": "ca1229794283a4583ea4b7680c909a943e8abb2067daf2487a23cf99d06f74b0"
+  },
+  "nodeGroups": [],
+  "id": "SyIQiJGeiP9tz6Ld",
+  "tags": []
+}
